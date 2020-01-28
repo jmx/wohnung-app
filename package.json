@@ -1,0 +1,14 @@
+{
+  "name": "wohnung-app",
+  "version": "1.0.0",
+  "description": "App to build PDF applications for wohnungs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "James Macpherson",
+  "license": "ISC",
+  "dependencies": {
+    "googleapis": "^39.2.0"
+  }
+}
