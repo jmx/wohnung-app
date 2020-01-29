@@ -9,6 +9,7 @@
   "author": "James Macpherson",
   "license": "ISC",
   "dependencies": {
-    "googleapis": "^39.2.0"
+    "googleapis": "^39.2.0",
+    "open": "^7.0.0"
   }
 }

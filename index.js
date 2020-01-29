@@ -1,6 +1,24 @@
 const fs = require('fs');
 const readline = require('readline');
 const {google} = require('googleapis');
+const open = require("open");
+const build_index = require("./lib/build_index.js");
+const {exec} = require("child_process");
+
+// index folder for the documents
+const INDEX_FOLDER = "1quPjq6yvbPtr6ropnlfAQbUoFg5f0Eug";
+/*
+  Notes:
+  If the file is a PDF, it'll be downloaded raw.
+  If the file is a google doc, it'll be converted by the Drive API
+
+  Format for the description field:
+  order include watermark title
+  01    ja    links       A file that will be included, watermarked left
+  02    nein  rechts      A file that will not be included
+  03    ja    kein        A file that will be included, not watermarked
+*/
+
 
 // If modifying these scopes, delete token.json.
 const SCOPES = ['https://www.googleapis.com/auth/drive.metadata.readonly', 'https://www.googleapis.com/auth/drive'];
@@ -13,7 +31,7 @@ const TOKEN_PATH = 'token.json';
 fs.readFile('credentials.json', (err, content) => {
   if (err) return console.log('Error loading client secret file:', err);
   // Authorize a client with credentials, then call the Google Drive API.
-  authorize(JSON.parse(content), listFiles);
+  authorize(JSON.parse(content), build_pdf);
 });
 
 /**
@@ -66,49 +84,91 @@ function getAccessToken(oAuth2Client, callback) {
   });
 }
 
-/**
- * Lists the names and IDs of up to 10 files.
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function listFiles(auth) {
-  const drive = google.drive({version: 'v3', auth});
-  drive.files.list({
-    pageSize: 10,
-    fields: 'nextPageToken, files(id, name)',
-  }, (err, res) => {
-    if (err) return console.log('The API returned an error: ' + err);
-    const files = res.data.files;
-    if (files.length) {
-      console.log('Files:');
-      files.map((file) => {
-        console.log(`${file.name} (${file.id})`);
-      });
-    } else {
-      console.log('No files found.');
-    }
-  });
 
-function download(fileId, name, done) {
-        const dest = fs.createWriteStream(name);
-        drive.files.export({
-            fileId: fileId,
-            mimeType: 'application/pdf'
-        }, {
-            responseType: 'stream'
-        },function(err, response){
-            if(err)return done(err);
-            
-            response.data.on('error', err => {
-                done(err);
-            }).on('end', ()=>{
-                done();
-            })
-            .pipe(dest);
-       });
+function download_file(drive, file) {
+
+  function get_file(file, done) {
+    var dest = fs.createWriteStream("./pdf/" + file.id + ".pdf");
+    drive.files.get({
+      fileId: file.id,
+      alt: 'media'
+    }, {responseType: 'stream'},
+      function(err, res) {
+          res.data
+          .on("end", () => {
+            done(file)
+          })
+          .on("error", (e) => {
+              console.og(e)
+          })
+          .pipe(dest)
+      }
+    )
   }
-  var fileId = '1fDdLKKG_br_Sa7WNhU2QaYQGdulfRjj2EZZT26Hek74';
-  download(fileId, "uber.pdf", function () {
-    console.log("done");
+
+  function export_pdf(file, done) {
+    const dest = fs.createWriteStream("./pdf/" + file.id + ".pdf");
+    drive.files.export({
+        fileId: file.id,
+        mimeType: 'application/pdf'
+    }, {
+        responseType: 'stream'
+    }, function(err, response){ 
+
+      if(err)return done(err);
+      
+      response.data.on('error', err => {
+          done(err);
+      }).on('end', ()=>{
+          done(file);
+      })
+      .pipe(dest);
+   });
+  }
+
+  return new Promise((resolve, reject) => {
+    let fparts = file.name.split(".");
+    let extension = fparts[fparts.length-1];
+    if (extension === "pdf") {
+      // get file
+      console.log("Downloading pdf: " + file.name);
+      get_file(file, resolve);
+    } else {
+      console.log("Converting to PDF: " + file.name);
+      export_pdf(file, resolve);
+    }
   });
 }
 
+
+function pdf_cat(toc) {
+  return new Promise((resolve, reject) => {
+    let pdf_list = toc.reduce((cmds, file) => {
+      cmds += ` ./pdf/${file.id}.pdf`;
+      return cmds;
+    }, "");
+    let cmd = `pdftk ${pdf_list} cat output ./pdf/output.pdf`;
+    exec(cmd, resolve);
+  });
+}
+
+/**
+ * Downloads and builds a PDF from a specified folder
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ */
+function build_pdf(auth) {
+  const drive = google.drive({version: 'v3', auth});
+
+  build_index(drive, INDEX_FOLDER, function (pdf_toc) {
+    // download each file
+    let files_to_download = pdf_toc.included.map((file) => download_file(drive, file));
+    //console.log(files_to_download);
+    Promise.all(files_to_download).then((stuff) => {
+      console.log("all things done");
+      pdf_cat(pdf_toc.included).then(function () {
+        open("./pdf/output.pdf");
+      })
+    });
+  });
+
+}
