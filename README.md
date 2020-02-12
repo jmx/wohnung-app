@@ -1,6 +1,6 @@
 # Wohnung App
 
-Little JS project to grab files from google drive.
+Little JS project to grab files from google drive and compile into a PDF.
 
 ## Requirements
 
